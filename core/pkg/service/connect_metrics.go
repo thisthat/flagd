@@ -20,7 +20,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/aggregation"
 
-	semconv "go.opentelemetry.io/otel/semconv/v1.13.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.18.0"
 )
 
 var (
@@ -46,6 +46,8 @@ type Recorder interface {
 	OTelInFlightRequestStart(props HTTPReqProperties)
 	// OTelInFlightRequestEnd count the finished requests.
 	OTelInFlightRequestEnd(props HTTPReqProperties)
+	// OTelImpressions counts the evaluation of a flag
+	OTelImpressions(key, variant string)
 }
 
 type Reporter interface {
@@ -64,6 +66,7 @@ type OTelMetricsRecorder struct {
 	httpRequestDurHistogram   instrument.Float64Histogram
 	httpResponseSizeHistogram instrument.Float64Histogram
 	httpRequestsInflight      instrument.Int64UpDownCounter
+	impressions               instrument.Int64Counter
 }
 
 func (r OTelMetricsRecorder) setAttributes(p HTTPReqProperties) []attribute.KeyValue {
@@ -89,6 +92,22 @@ func (r OTelMetricsRecorder) OTelInFlightRequestStart(p HTTPReqProperties) {
 
 func (r OTelMetricsRecorder) OTelInFlightRequestEnd(p HTTPReqProperties) {
 	r.httpRequestsInflight.Add(context.TODO(), -1, r.setAttributes(p)...)
+}
+
+func (r OTelMetricsRecorder) OTelImpressions(key, variant string) {
+	r.impressions.Add(context.TODO(), 1, []attribute.KeyValue{
+		semconv.FeatureFlagKey(key),
+		semconv.FeatureFlagVariant(variant),
+		semconv.FeatureFlagProviderName("flagd"),
+	}...)
+}
+
+type FlagEvaluationRecorder interface {
+	Impressions(key, variant string)
+}
+
+func (m Middleware) Impressions(key, variant string) {
+	m.cfg.recorder.OTelImpressions(key, variant)
 }
 
 type middlewareConfig struct {
@@ -160,10 +179,15 @@ func (cfg *middlewareConfig) newOTelRecorder(exporter metric.Reader) *OTelMetric
 		"http_requests_inflight",
 		instrument.WithDescription("The number of inflight requests being handled at the same time"),
 	)
+	impressions, _ := meter.Int64Counter(
+		"impressions",
+		instrument.WithDescription("The number of evaluation for a given flag"),
+	)
 	return &OTelMetricsRecorder{
 		httpRequestDurHistogram:   hduration,
 		httpResponseSizeHistogram: hsize,
 		httpRequestsInflight:      reqCounter,
+		impressions:               impressions,
 	}
 }
 

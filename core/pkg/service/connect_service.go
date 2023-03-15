@@ -34,6 +34,7 @@ type ConnectService struct {
 	ConnectServiceConfiguration *ConnectServiceConfiguration
 	eventingConfiguration       *eventingConfiguration
 	server                      http.Server
+	metrics                     FlagEvaluationRecorder
 }
 type ConnectServiceConfiguration struct {
 	Port             int32
@@ -96,6 +97,7 @@ func (s *ConnectService) setupServer(svcConf Configuration) (net.Listener, error
 		lis, err = net.Listen("unix", s.ConnectServiceConfiguration.ServerSocketPath)
 	} else {
 		address := fmt.Sprintf(":%d", s.ConnectServiceConfiguration.Port)
+		fmt.Println(address)
 		lis, err = net.Listen("tcp", address)
 	}
 	if err != nil {
@@ -113,6 +115,7 @@ func (s *ConnectService) setupServer(svcConf Configuration) (net.Listener, error
 		MetricReader: exporter,
 		Logger:       s.Logger,
 	})
+	s.metrics = mdlw
 	h := Handler("", mdlw, mux)
 
 	go bindMetrics(s, svcConf)
@@ -245,6 +248,7 @@ func resolve[T constraints](
 	flagKey string,
 	ctx *structpb.Struct,
 	resp response[T],
+	metrics FlagEvaluationRecorder,
 ) error {
 	reqID := xid.New().String()
 	defer logger.ClearFields(reqID)
@@ -261,6 +265,9 @@ func resolve[T constraints](
 		reason = model.ErrorReason
 		evalErr = errFormat(evalErr)
 	}
+	defer func() {
+		metrics.Impressions(flagKey, variant)
+	}()
 
 	if err := resp.SetResult(result, variant, reason); err != nil && evalErr == nil {
 		logger.ErrorWithID(reqID, err.Error())
@@ -276,7 +283,7 @@ func (s *ConnectService) ResolveBoolean(
 ) (*connect.Response[schemaV1.ResolveBooleanResponse], error) {
 	res := connect.NewResponse(&schemaV1.ResolveBooleanResponse{})
 	err := resolve[bool](
-		s.Logger, s.Eval.ResolveBooleanValue, req.Msg.GetFlagKey(), req.Msg.GetContext(), &booleanResponse{res},
+		s.Logger, s.Eval.ResolveBooleanValue, req.Msg.GetFlagKey(), req.Msg.GetContext(), &booleanResponse{res}, s.metrics,
 	)
 
 	return res, err
@@ -288,7 +295,7 @@ func (s *ConnectService) ResolveString(
 ) (*connect.Response[schemaV1.ResolveStringResponse], error) {
 	res := connect.NewResponse(&schemaV1.ResolveStringResponse{})
 	err := resolve[string](
-		s.Logger, s.Eval.ResolveStringValue, req.Msg.GetFlagKey(), req.Msg.GetContext(), &stringResponse{res},
+		s.Logger, s.Eval.ResolveStringValue, req.Msg.GetFlagKey(), req.Msg.GetContext(), &stringResponse{res}, s.metrics,
 	)
 
 	return res, err
@@ -300,7 +307,7 @@ func (s *ConnectService) ResolveInt(
 ) (*connect.Response[schemaV1.ResolveIntResponse], error) {
 	res := connect.NewResponse(&schemaV1.ResolveIntResponse{})
 	err := resolve[int64](
-		s.Logger, s.Eval.ResolveIntValue, req.Msg.GetFlagKey(), req.Msg.GetContext(), &intResponse{res},
+		s.Logger, s.Eval.ResolveIntValue, req.Msg.GetFlagKey(), req.Msg.GetContext(), &intResponse{res}, s.metrics,
 	)
 
 	return res, err
@@ -312,7 +319,7 @@ func (s *ConnectService) ResolveFloat(
 ) (*connect.Response[schemaV1.ResolveFloatResponse], error) {
 	res := connect.NewResponse(&schemaV1.ResolveFloatResponse{})
 	err := resolve[float64](
-		s.Logger, s.Eval.ResolveFloatValue, req.Msg.GetFlagKey(), req.Msg.GetContext(), &floatResponse{res},
+		s.Logger, s.Eval.ResolveFloatValue, req.Msg.GetFlagKey(), req.Msg.GetContext(), &floatResponse{res}, s.metrics,
 	)
 
 	return res, err
@@ -324,7 +331,7 @@ func (s *ConnectService) ResolveObject(
 ) (*connect.Response[schemaV1.ResolveObjectResponse], error) {
 	res := connect.NewResponse(&schemaV1.ResolveObjectResponse{})
 	err := resolve[map[string]any](
-		s.Logger, s.Eval.ResolveObjectValue, req.Msg.GetFlagKey(), req.Msg.GetContext(), &objectResponse{res},
+		s.Logger, s.Eval.ResolveObjectValue, req.Msg.GetFlagKey(), req.Msg.GetContext(), &objectResponse{res}, s.metrics,
 	)
 
 	return res, err
