@@ -1,0 +1,126 @@
+package otel
+
+import (
+	"context"
+	"github.com/prometheus/client_golang/prometheus"
+	"go.opentelemetry.io/otel/metric/unit"
+	"go.opentelemetry.io/otel/sdk/instrumentation"
+	"go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/aggregation"
+	"time"
+
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric/instrument"
+	semconv "go.opentelemetry.io/otel/semconv/v1.18.0"
+)
+
+type Recorder interface {
+	// HttpRequestDuration measures the duration of an HTTP request.
+	HttpRequestDuration(ctx context.Context, duration time.Duration, attrs []attribute.KeyValue)
+	// HttpResponseSize measures the size of an HTTP response in bytes.
+	HttpResponseSize(ctx context.Context, sizeBytes int64, attrs []attribute.KeyValue)
+
+	// InFlightRequestStart count the active requests.
+	InFlightRequestStart(ctx context.Context, attrs []attribute.KeyValue)
+	// InFlightRequestEnd count the finished requests.
+	InFlightRequestEnd(ctx context.Context, attrs []attribute.KeyValue)
+	// Impressions counts the evaluation of a flag
+	Impressions(ctx context.Context, key, variant string)
+}
+
+type HTTPProperties struct {
+	Service string
+	ID      string
+}
+
+type MetricsRecorder struct {
+	httpRequestDurHistogram   instrument.Float64Histogram
+	httpResponseSizeHistogram instrument.Float64Histogram
+	httpRequestsInflight      instrument.Int64UpDownCounter
+	impressions               instrument.Int64Counter
+}
+
+func (r MetricsRecorder) HTTPAttributes(svcName, url, method, code string) []attribute.KeyValue {
+	return []attribute.KeyValue{
+		semconv.ServiceNameKey.String(svcName),
+		semconv.HTTPURLKey.String(url),
+		semconv.HTTPMethodKey.String(method),
+		semconv.HTTPStatusCodeKey.String(code),
+	}
+}
+
+func (r MetricsRecorder) HTTPRequestDuration(ctx context.Context, duration time.Duration, attrs []attribute.KeyValue) {
+	r.httpRequestDurHistogram.Record(ctx, duration.Seconds(), attrs...)
+}
+
+func (r MetricsRecorder) HttpResponseSize(ctx context.Context, sizeBytes int64, attrs []attribute.KeyValue) {
+	r.httpResponseSizeHistogram.Record(ctx, float64(sizeBytes), attrs...)
+}
+
+func (r MetricsRecorder) OTelInFlightRequestStart(ctx context.Context, attrs []attribute.KeyValue) {
+	r.httpRequestsInflight.Add(ctx, 1, attrs...)
+}
+
+func (r MetricsRecorder) OTelInFlightRequestEnd(ctx context.Context, attrs []attribute.KeyValue) {
+	r.httpRequestsInflight.Add(ctx, -1, attrs...)
+}
+
+func (r MetricsRecorder) OTelImpressions(ctx context.Context, key, variant string) {
+	r.impressions.Add(ctx, 1, []attribute.KeyValue{
+		semconv.FeatureFlagKey(key),
+		semconv.FeatureFlagVariant(variant),
+		semconv.FeatureFlagProviderName("flagd"),
+	}...)
+}
+
+func getDurationView(svcName, viewName string, bucket []float64) metric.View {
+	return metric.NewView(
+		metric.Instrument{
+			// we change aggregation only for instruments with this name and scope
+			Name: viewName,
+			Scope: instrumentation.Scope{
+				Name: svcName,
+			},
+		},
+		metric.Stream{Aggregation: aggregation.ExplicitBucketHistogram{
+			Boundaries: bucket,
+		}},
+	)
+}
+
+func NewOTelRecorder(exporter metric.Reader, serviceName string) *MetricsRecorder {
+	const requestDurationName = "http_request_duration_seconds"
+	const responseSizeName = "http_response_size_bytes"
+
+	// create a metric provider with custom bucket size for histograms
+	provider := metric.NewMeterProvider(
+		metric.WithReader(exporter),
+		metric.WithView(getDurationView(requestDurationName, serviceName, prometheus.DefBuckets)),
+		metric.WithView(getDurationView(responseSizeName, serviceName, prometheus.ExponentialBuckets(100, 10, 8))),
+	)
+	meter := provider.Meter(serviceName)
+	// we can ignore errors from OpenTelemetry since they could occur if we select the wrong aggregator
+	hduration, _ := meter.Float64Histogram(
+		requestDurationName,
+		instrument.WithDescription("The latency of the HTTP requests"),
+	)
+	hsize, _ := meter.Float64Histogram(
+		responseSizeName,
+		instrument.WithDescription("The size of the HTTP responses"),
+		instrument.WithUnit(unit.Bytes),
+	)
+	reqCounter, _ := meter.Int64UpDownCounter(
+		"http_requests_inflight",
+		instrument.WithDescription("The number of inflight requests being handled at the same time"),
+	)
+	impressions, _ := meter.Int64Counter(
+		"impressions",
+		instrument.WithDescription("The number of evaluation for a given flag"),
+	)
+	return &MetricsRecorder{
+		httpRequestDurHistogram:   hduration,
+		httpResponseSizeHistogram: hsize,
+		httpRequestsInflight:      reqCounter,
+		impressions:               impressions,
+	}
+}
