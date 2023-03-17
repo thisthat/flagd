@@ -21,7 +21,7 @@ var (
 	_ http.Flusher        = &responseWriterInterceptor{}
 )
 
-type middlewareConfig struct {
+type Config struct {
 	MetricRecorder     *otel.MetricsRecorder
 	Logger             *logger.Logger
 	Service            string
@@ -30,10 +30,10 @@ type middlewareConfig struct {
 }
 
 type Middleware struct {
-	cfg middlewareConfig
+	cfg Config
 }
 
-func New(cfg middlewareConfig) Middleware {
+func NewHttpMetric(cfg Config) Middleware {
 	cfg.defaults()
 	m := Middleware{
 		cfg: cfg,
@@ -41,12 +41,12 @@ func New(cfg middlewareConfig) Middleware {
 	return m
 }
 
-func (cfg *middlewareConfig) defaults() {
+func (cfg *Config) defaults() {
 	if cfg.Logger == nil {
 		log.Fatal("missing logger")
 	}
 	if cfg.MetricRecorder == nil {
-		log.Fatal("missing OpenTelemetry metric recorder")
+		cfg.Logger.Fatal("missing OpenTelemetry metric recorder")
 	}
 }
 

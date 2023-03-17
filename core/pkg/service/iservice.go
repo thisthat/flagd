@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-
 	"github.com/open-feature/flagd/core/pkg/eval"
 )
 
@@ -23,6 +22,7 @@ type ReadinessProbe func() bool
 
 type Configuration struct {
 	ReadinessProbe ReadinessProbe
+	ServiceName    string
 }
 
 /*

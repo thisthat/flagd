@@ -19,12 +19,25 @@ import (
 type FlagEvaluationService struct {
 	logger                *logger.Logger
 	eval                  eval.IEvaluator
-	eventingConfiguration eventingConfiguration
+	metrics               *otel.MetricsRecorder
+	eventingConfiguration *eventingConfiguration
 }
 
 type eventingConfiguration struct {
 	mu   *sync.RWMutex
 	subs map[interface{}]chan Notification
+}
+
+func NewFlagEvaluationService(log *logger.Logger, eval eval.IEvaluator, metricsRecorder *otel.MetricsRecorder) *FlagEvaluationService {
+	return &FlagEvaluationService{
+		logger:  log,
+		eval:    eval,
+		metrics: metricsRecorder,
+		eventingConfiguration: &eventingConfiguration{
+			subs: make(map[interface{}]chan Notification),
+			mu:   &sync.RWMutex{},
+		},
+	}
 }
 
 func (s *FlagEvaluationService) ResolveAll(
@@ -132,7 +145,7 @@ func resolve[T constraints](
 	ctx *structpb.Struct,
 	resp response[T],
 	goCtx context.Context,
-	metrics otel.MetricsRecorder,
+	metrics *otel.MetricsRecorder,
 ) error {
 	reqID := xid.New().String()
 	defer logger.ClearFields(reqID)
@@ -161,61 +174,61 @@ func resolve[T constraints](
 	return evalErr
 }
 
-func (s *ConnectService) ResolveBoolean(
+func (s *FlagEvaluationService) ResolveBoolean(
 	ctx context.Context,
 	req *connect.Request[schemaV1.ResolveBooleanRequest],
 ) (*connect.Response[schemaV1.ResolveBooleanResponse], error) {
 	res := connect.NewResponse(&schemaV1.ResolveBooleanResponse{})
 	err := resolve[bool](
-		s.Logger, s.Eval.ResolveBooleanValue, req.Msg.GetFlagKey(), req.Msg.GetContext(), &booleanResponse{res}, ctx, s.metrics,
+		s.logger, s.eval.ResolveBooleanValue, req.Msg.GetFlagKey(), req.Msg.GetContext(), &booleanResponse{res}, ctx, s.metrics,
 	)
 
 	return res, err
 }
 
-func (s *ConnectService) ResolveString(
+func (s *FlagEvaluationService) ResolveString(
 	ctx context.Context,
 	req *connect.Request[schemaV1.ResolveStringRequest],
 ) (*connect.Response[schemaV1.ResolveStringResponse], error) {
 	res := connect.NewResponse(&schemaV1.ResolveStringResponse{})
 	err := resolve[string](
-		s.Logger, s.Eval.ResolveStringValue, req.Msg.GetFlagKey(), req.Msg.GetContext(), &stringResponse{res}, ctx, s.metrics,
+		s.logger, s.eval.ResolveStringValue, req.Msg.GetFlagKey(), req.Msg.GetContext(), &stringResponse{res}, ctx, s.metrics,
 	)
 
 	return res, err
 }
 
-func (s *ConnectService) ResolveInt(
+func (s *FlagEvaluationService) ResolveInt(
 	ctx context.Context,
 	req *connect.Request[schemaV1.ResolveIntRequest],
 ) (*connect.Response[schemaV1.ResolveIntResponse], error) {
 	res := connect.NewResponse(&schemaV1.ResolveIntResponse{})
 	err := resolve[int64](
-		s.Logger, s.Eval.ResolveIntValue, req.Msg.GetFlagKey(), req.Msg.GetContext(), &intResponse{res}, ctx, s.metrics,
+		s.logger, s.eval.ResolveIntValue, req.Msg.GetFlagKey(), req.Msg.GetContext(), &intResponse{res}, ctx, s.metrics,
 	)
 
 	return res, err
 }
 
-func (s *ConnectService) ResolveFloat(
+func (s *FlagEvaluationService) ResolveFloat(
 	ctx context.Context,
 	req *connect.Request[schemaV1.ResolveFloatRequest],
 ) (*connect.Response[schemaV1.ResolveFloatResponse], error) {
 	res := connect.NewResponse(&schemaV1.ResolveFloatResponse{})
 	err := resolve[float64](
-		s.Logger, s.Eval.ResolveFloatValue, req.Msg.GetFlagKey(), req.Msg.GetContext(), &floatResponse{res}, ctx, s.metrics,
+		s.logger, s.eval.ResolveFloatValue, req.Msg.GetFlagKey(), req.Msg.GetContext(), &floatResponse{res}, ctx, s.metrics,
 	)
 
 	return res, err
 }
 
-func (s *ConnectService) ResolveObject(
+func (s *FlagEvaluationService) ResolveObject(
 	ctx context.Context,
 	req *connect.Request[schemaV1.ResolveObjectRequest],
 ) (*connect.Response[schemaV1.ResolveObjectResponse], error) {
 	res := connect.NewResponse(&schemaV1.ResolveObjectResponse{})
 	err := resolve[map[string]any](
-		s.Logger, s.Eval.ResolveObjectValue, req.Msg.GetFlagKey(), req.Msg.GetContext(), &objectResponse{res}, ctx, s.metrics,
+		s.logger, s.eval.ResolveObjectValue, req.Msg.GetFlagKey(), req.Msg.GetContext(), &objectResponse{res}, ctx, s.metrics,
 	)
 
 	return res, err

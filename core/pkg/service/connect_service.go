@@ -5,6 +5,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/open-feature/flagd/core/pkg/otel"
+	"github.com/open-feature/flagd/core/pkg/service/middleware"
+	"go.uber.org/zap"
 	"net"
 	"net/http"
 	"sync"
@@ -15,7 +18,6 @@ import (
 	"github.com/open-feature/flagd/core/pkg/logger"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/cors"
-	"go.opentelemetry.io/otel/exporters/prometheus"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 )
@@ -28,7 +30,7 @@ type ConnectService struct {
 	ConnectServiceConfiguration *ConnectServiceConfiguration
 	eventingConfiguration       *eventingConfiguration
 	server                      http.Server
-	metrics                     FlagEvaluationRecorder
+	Metrics                     *otel.MetricsRecorder
 }
 type ConnectServiceConfiguration struct {
 	Port             int32
@@ -92,20 +94,21 @@ func (s *ConnectService) setupServer(svcConf Configuration) (net.Listener, error
 	if err != nil {
 		return nil, err
 	}
-	path, handler := schemaConnectV1.NewServiceHandler(s)
+	fes := NewFlagEvaluationService(
+		s.Logger.WithFields(zap.String("component", "flagservice")),
+		s.Eval,
+		s.Metrics,
+	)
+	path, handler := schemaConnectV1.NewServiceHandler(fes)
 	mux.Handle(path, handler)
-	exporter, err := prometheus.New()
-	if err != nil {
-		return nil, err
-	}
-
-	mdlw := New(middlewareConfig{
-		Service:      "openfeature/flagd",
-		MetricReader: exporter,
-		Logger:       s.Logger,
+	const svcName = "openfeature/flagd"
+	mdlw := middleware.NewHttpMetric(middleware.Config{
+		// TODO: push up into svcConf the exporter creation and svcName
+		Service:        svcConf.ServiceName,
+		MetricRecorder: s.Metrics,
+		Logger:         s.Logger,
 	})
-	s.metrics = mdlw
-	h := Handler("", mdlw, mux)
+	h := middleware.Handler("", mdlw, mux)
 
 	go bindMetrics(s, svcConf)
 
