@@ -46,7 +46,7 @@ func (r MetricsRecorder) InFlightRequestEnd(ctx context.Context, attrs []attribu
 	r.httpRequestsInflight.Add(ctx, -1, attrs...)
 }
 
-func (r MetricsRecorder) OTelImpressions(ctx context.Context, key, variant string) {
+func (r MetricsRecorder) Impressions(ctx context.Context, key, variant string) {
 	r.impressions.Add(ctx, 1, []attribute.KeyValue{
 		semconv.FeatureFlagKey(key),
 		semconv.FeatureFlagVariant(variant),

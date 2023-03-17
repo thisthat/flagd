@@ -106,122 +106,73 @@ func TestNewOTelRecorder(t *testing.T) {
 	}
 }
 
-func TestHttpRequestDuration(t *testing.T) {
+func TestMetrics(t *testing.T) {
 	exp := metric.NewManualReader()
 	rec := NewOTelRecorder(exp, svcName)
 	ctx := context.TODO()
 	attrs := []attribute.KeyValue{
 		semconv.ServiceNameKey.String(svcName),
 	}
-
-	// histogram are aggregated into a single datapoint made by multiple buckets
 	const n = 5
-	for i := 0; i < n; i++ {
-		rec.HttpRequestDuration(ctx, 10, attrs)
+	type MetricF func()
+	tests := []struct {
+		name       string
+		metricFunc MetricF
+	}{
+		{
+			name: "HttpRequestDuration",
+			metricFunc: func() {
+				for i := 0; i < n; i++ {
+					rec.HttpRequestDuration(ctx, 10, attrs)
+				}
+			},
+		},
+		{
+			name: "HttpResponseSize",
+			metricFunc: func() {
+				for i := 0; i < n; i++ {
+					rec.HttpResponseSize(ctx, 100, attrs)
+				}
+			},
+		},
+		{
+			name: "InFlightRequestStart",
+			metricFunc: func() {
+				for i := 0; i < n; i++ {
+					rec.InFlightRequestStart(ctx, attrs)
+					rec.InFlightRequestEnd(ctx, attrs)
+				}
+			},
+		},
+		{
+			name: "Impressions",
+			metricFunc: func() {
+				for i := 0; i < n; i++ {
+					rec.Impressions(ctx, "a", "b")
+				}
+			},
+		},
+	}
+	i := 0
+	for _, tt := range tests {
+		i++
+		tt.metricFunc()
+		data, err := exp.Collect(context.TODO())
+		if err != nil {
+			t.Errorf("Got %v", err)
+		}
+		if len(data.ScopeMetrics) != 1 {
+			t.Errorf("A single scope is expected, got %d", len(data.ScopeMetrics))
+		}
+		scopeMetrics := data.ScopeMetrics[0]
+		if !reflect.DeepEqual(scopeMetrics.Scope.Name, svcName) {
+			t.Errorf("Scope name %s, want %s", scopeMetrics.Scope.Name, svcName)
+		}
+
+		if len(scopeMetrics.Metrics) != i {
+			t.Errorf("Expected %d metric point, got %d", i, len(scopeMetrics.Metrics))
+		}
+
 	}
 
-	data, err := exp.Collect(context.TODO())
-	if err != nil {
-		t.Errorf("Got %v", err)
-	}
-	if len(data.ScopeMetrics) != 1 {
-		t.Errorf("A single scope is expected, got %d", len(data.ScopeMetrics))
-	}
-	scopeMetrics := data.ScopeMetrics[0]
-	if !reflect.DeepEqual(scopeMetrics.Scope.Name, svcName) {
-		t.Errorf("Scope name %s, want %s", scopeMetrics.Scope.Name, svcName)
-	}
-
-	if len(scopeMetrics.Metrics) != 1 {
-		t.Errorf("Expected 1 metric point, got %d", len(scopeMetrics.Metrics))
-	}
-}
-
-func TestHttpResponseSize(t *testing.T) {
-	exp := metric.NewManualReader()
-	rec := NewOTelRecorder(exp, svcName)
-	ctx := context.TODO()
-	attrs := []attribute.KeyValue{
-		semconv.ServiceNameKey.String(svcName),
-	}
-
-	// histogram are aggregated into a single datapoint made by multiple buckets
-	const n = 5
-	for i := 0; i < n; i++ {
-		rec.HttpResponseSize(ctx, 10, attrs)
-	}
-
-	data, err := exp.Collect(context.TODO())
-	if err != nil {
-		t.Errorf("Got %v", err)
-	}
-	if len(data.ScopeMetrics) != 1 {
-		t.Errorf("A single scope is expected, got %d", len(data.ScopeMetrics))
-	}
-	scopeMetrics := data.ScopeMetrics[0]
-	if !reflect.DeepEqual(scopeMetrics.Scope.Name, svcName) {
-		t.Errorf("Scope name %s, want %s", scopeMetrics.Scope.Name, svcName)
-	}
-
-	if len(scopeMetrics.Metrics) != 1 {
-		t.Errorf("Expected 1 metric point, got %d", len(scopeMetrics.Metrics))
-	}
-}
-
-func TestInFlightRequest(t *testing.T) {
-	exp := metric.NewManualReader()
-	rec := NewOTelRecorder(exp, svcName)
-	ctx := context.TODO()
-	attrs := []attribute.KeyValue{
-		semconv.ServiceNameKey.String(svcName),
-	}
-
-	const n = 5
-	for i := 0; i < n; i++ {
-		rec.InFlightRequestStart(ctx, attrs)
-		rec.InFlightRequestEnd(ctx, attrs)
-	}
-
-	data, err := exp.Collect(context.TODO())
-	if err != nil {
-		t.Errorf("Got %v", err)
-	}
-	if len(data.ScopeMetrics) != 1 {
-		t.Errorf("A single scope is expected, got %d", len(data.ScopeMetrics))
-	}
-	scopeMetrics := data.ScopeMetrics[0]
-	if !reflect.DeepEqual(scopeMetrics.Scope.Name, svcName) {
-		t.Errorf("Scope name %s, want %s", scopeMetrics.Scope.Name, svcName)
-	}
-
-	if len(scopeMetrics.Metrics) != 1 {
-		t.Errorf("Expected 1 metric point, got %d", len(scopeMetrics.Metrics))
-	}
-}
-
-func TestImpressions(t *testing.T) {
-	exp := metric.NewManualReader()
-	rec := NewOTelRecorder(exp, svcName)
-	ctx := context.TODO()
-
-	const n = 5
-	for i := 0; i < n; i++ {
-		rec.OTelImpressions(ctx, "a", "b")
-	}
-
-	data, err := exp.Collect(context.TODO())
-	if err != nil {
-		t.Errorf("Got %v", err)
-	}
-	if len(data.ScopeMetrics) != 1 {
-		t.Errorf("A single scope is expected, got %d", len(data.ScopeMetrics))
-	}
-	scopeMetrics := data.ScopeMetrics[0]
-	if !reflect.DeepEqual(scopeMetrics.Scope.Name, svcName) {
-		t.Errorf("Scope name %s, want %s", scopeMetrics.Scope.Name, svcName)
-	}
-
-	if len(scopeMetrics.Metrics) != 1 {
-		t.Errorf("Expected 1 metric point, got %d", len(scopeMetrics.Metrics))
-	}
 }
