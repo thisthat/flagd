@@ -14,25 +14,6 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.18.0"
 )
 
-type Recorder interface {
-	// HttpRequestDuration measures the duration of an HTTP request.
-	HttpRequestDuration(ctx context.Context, duration time.Duration, attrs []attribute.KeyValue)
-	// HttpResponseSize measures the size of an HTTP response in bytes.
-	HttpResponseSize(ctx context.Context, sizeBytes int64, attrs []attribute.KeyValue)
-
-	// InFlightRequestStart count the active requests.
-	InFlightRequestStart(ctx context.Context, attrs []attribute.KeyValue)
-	// InFlightRequestEnd count the finished requests.
-	InFlightRequestEnd(ctx context.Context, attrs []attribute.KeyValue)
-	// Impressions counts the evaluation of a flag
-	Impressions(ctx context.Context, key, variant string)
-}
-
-type HTTPProperties struct {
-	Service string
-	ID      string
-}
-
 type MetricsRecorder struct {
 	httpRequestDurHistogram   instrument.Float64Histogram
 	httpResponseSizeHistogram instrument.Float64Histogram
@@ -40,7 +21,7 @@ type MetricsRecorder struct {
 	impressions               instrument.Int64Counter
 }
 
-func (r MetricsRecorder) HTTPAttributes(svcName, url, method, code string) []attribute.KeyValue {
+func (r MetricsRecorder) HttpAttributes(svcName, url, method, code string) []attribute.KeyValue {
 	return []attribute.KeyValue{
 		semconv.ServiceNameKey.String(svcName),
 		semconv.HTTPURLKey.String(url),
@@ -49,7 +30,7 @@ func (r MetricsRecorder) HTTPAttributes(svcName, url, method, code string) []att
 	}
 }
 
-func (r MetricsRecorder) HTTPRequestDuration(ctx context.Context, duration time.Duration, attrs []attribute.KeyValue) {
+func (r MetricsRecorder) HttpRequestDuration(ctx context.Context, duration time.Duration, attrs []attribute.KeyValue) {
 	r.httpRequestDurHistogram.Record(ctx, duration.Seconds(), attrs...)
 }
 
@@ -57,11 +38,11 @@ func (r MetricsRecorder) HttpResponseSize(ctx context.Context, sizeBytes int64, 
 	r.httpResponseSizeHistogram.Record(ctx, float64(sizeBytes), attrs...)
 }
 
-func (r MetricsRecorder) OTelInFlightRequestStart(ctx context.Context, attrs []attribute.KeyValue) {
+func (r MetricsRecorder) InFlightRequestStart(ctx context.Context, attrs []attribute.KeyValue) {
 	r.httpRequestsInflight.Add(ctx, 1, attrs...)
 }
 
-func (r MetricsRecorder) OTelInFlightRequestEnd(ctx context.Context, attrs []attribute.KeyValue) {
+func (r MetricsRecorder) InFlightRequestEnd(ctx context.Context, attrs []attribute.KeyValue) {
 	r.httpRequestsInflight.Add(ctx, -1, attrs...)
 }
 

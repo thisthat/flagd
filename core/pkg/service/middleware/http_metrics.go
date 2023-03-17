@@ -68,22 +68,22 @@ func (m Middleware) Measure(ctx context.Context, handlerID string, reporter Repo
 		code = strconv.Itoa(reporter.StatusCode())
 	}
 
-	httpAttrs := m.cfg.MetricRecorder.HTTPAttributes(
+	httpAttrs := m.cfg.MetricRecorder.HttpAttributes(
 		m.cfg.Service,
 		hid,
 		reporter.Method(),
 		code,
 	)
 
-	m.cfg.MetricRecorder.OTelInFlightRequestStart(ctx, httpAttrs)
-	defer m.cfg.MetricRecorder.OTelInFlightRequestEnd(ctx, httpAttrs)
+	m.cfg.MetricRecorder.InFlightRequestStart(ctx, httpAttrs)
+	defer m.cfg.MetricRecorder.InFlightRequestEnd(ctx, httpAttrs)
 
 	// Start the timer and when finishing measure the duration.
 	start := time.Now()
 	defer func() {
 		duration := time.Since(start)
 
-		m.cfg.MetricRecorder.HTTPRequestDuration(ctx, duration, httpAttrs)
+		m.cfg.MetricRecorder.HttpRequestDuration(ctx, duration, httpAttrs)
 
 		// Measure size of response if required.
 		if !m.cfg.DisableMeasureSize {

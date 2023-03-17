@@ -101,9 +101,7 @@ func (s *ConnectService) setupServer(svcConf Configuration) (net.Listener, error
 	)
 	path, handler := schemaConnectV1.NewServiceHandler(fes)
 	mux.Handle(path, handler)
-	const svcName = "openfeature/flagd"
 	mdlw := middleware.NewHttpMetric(middleware.Config{
-		// TODO: push up into svcConf the exporter creation and svcName
 		Service:        svcConf.ServiceName,
 		MetricRecorder: s.Metrics,
 		Logger:         s.Logger,
